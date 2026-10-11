@@ -13,7 +13,11 @@ const DIFFICULTY_CONTEXT: Record<string, string> = {
 };
 
 export async function POST(req: NextRequest) {
-  const { transcript, difficulty = "beginner" } = await req.json();
+  const {
+    transcript,
+    difficulty = "beginner",
+    language = "Spanish",
+  } = await req.json();
 
   if (!transcript || typeof transcript !== "string") {
     return NextResponse.json(
@@ -25,8 +29,8 @@ export async function POST(req: NextRequest) {
   const difficultyNote =
     DIFFICULTY_CONTEXT[difficulty] || DIFFICULTY_CONTEXT.beginner;
 
-  const systemPrompt = `You are a friendly Spanish language coach helping a student practice speaking Spanish.
-The student has just said something in Spanish. Evaluate what they said:
+  const systemPrompt = `You are a friendly language coach helping a student practice speaking ${language}.
+The student has just said something in ${language}. Evaluate what they said:
 - Note what was grammatically correct or well-expressed
 - Gently correct any mistakes with a brief explanation
 - Give a word of encouragement
@@ -42,7 +46,7 @@ ${difficultyNote}`;
     messages: [
       {
         role: "user",
-        content: `The student said in Spanish: "${transcript}"`,
+        content: `The student said in ${language}: "${transcript}"`,
       },
     ],
   });
