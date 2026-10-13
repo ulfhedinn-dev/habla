@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
+import Anthropic from "@anthropic-ai/sdk";
 
 type Difficulty = "beginner" | "intermediate" | "advanced";
 
@@ -27,7 +28,65 @@ const DIFFICULTY_COLORS: Record<Difficulty, string> = {
   advanced: "bg-red-500 hover:bg-red-600",
 };
 
+const DIFFICULTY_CONTEXT: Record<Difficulty, string> = {
+  beginner:
+    "The student is a beginner. Be very gentle with corrections, focus on major errors only, and give lots of encouragement. Praise effort heavily.",
+  intermediate:
+    "The student is at an intermediate level. Point out grammatical mistakes and vocabulary improvements, but keep corrections encouraging and constructive.",
+  advanced:
+    "The student is at an advanced level. Be thorough with corrections — grammar, vocabulary, fluency, and natural phrasing all matter. Still be encouraging but more detailed.",
+};
+
+const API_KEY_STORAGE = "habla_anthropic_key";
+
+function ApiKeySetup({ onSave }: { onSave: (key: string) => void }) {
+  const [value, setValue] = useState("");
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = value.trim();
+    if (!trimmed.startsWith("sk-")) return;
+    localStorage.setItem(API_KEY_STORAGE, trimmed);
+    onSave(trimmed);
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-purple-50 flex items-center justify-center p-6">
+      <div className="bg-white rounded-2xl shadow-lg p-8 max-w-md w-full">
+        <h1 className="text-3xl font-bold text-blue-700 text-center mb-2">🗣️ habla</h1>
+        <p className="text-gray-500 text-sm text-center mb-6">
+          Enter your Anthropic API key to get started. It&apos;s stored only in your browser.
+        </p>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <input
+            type="password"
+            placeholder="sk-ant-..."
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
+            autoComplete="off"
+          />
+          <button
+            type="submit"
+            disabled={!value.trim().startsWith("sk-")}
+            className="w-full bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 text-white font-semibold py-3 rounded-xl transition-all"
+          >
+            Start practicing
+          </button>
+        </form>
+        <p className="text-xs text-gray-400 text-center mt-4">
+          Get your key at{" "}
+          <a href="https://console.anthropic.com" target="_blank" rel="noreferrer" className="text-blue-400 underline">
+            console.anthropic.com
+          </a>
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export default function SpeechCoach() {
+  const [apiKey, setApiKey] = useState<string | null>(null);
   const [difficulty, setDifficulty] = useState<Difficulty>("beginner");
   const [isRecording, setIsRecording] = useState(false);
   const [isEvaluating, setIsEvaluating] = useState(false);
@@ -43,11 +102,12 @@ export default function SpeechCoach() {
   const interimRef = useRef("");
 
   useEffect(() => {
+    const stored = localStorage.getItem(API_KEY_STORAGE);
+    if (stored) setApiKey(stored);
+
     const SpeechRecognitionClass =
       window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognitionClass) {
-      setSupported(false);
-    }
+    if (!SpeechRecognitionClass) setSupported(false);
   }, []);
 
   const startRecognition = useCallback(() => {
@@ -71,9 +131,7 @@ export default function SpeechCoach() {
           interim += result[0].transcript;
         }
       }
-      if (final) {
-        interimRef.current += final;
-      }
+      if (final) interimRef.current += final;
       setTranscript(interimRef.current + interim);
     };
 
@@ -84,10 +142,7 @@ export default function SpeechCoach() {
     };
 
     recognition.onend = () => {
-      if (holdingRef.current) {
-        // Restart if user is still holding
-        recognition.start();
-      }
+      if (holdingRef.current) recognition.start();
     };
 
     recognitionRef.current = recognition;
@@ -116,19 +171,38 @@ export default function SpeechCoach() {
     setError("");
 
     try {
-      const res = await fetch("/api/coach", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ transcript: finalTranscript, difficulty }),
+      const client = new Anthropic({
+        apiKey: apiKey!,
+        dangerouslyAllowBrowser: true,
       });
 
-      if (!res.ok) throw new Error("Coaching request failed");
+      const systemPrompt = `You are a friendly Spanish language coach helping a student practice speaking Spanish.
+The student has just said something in Spanish. Evaluate what they said:
+- Note what was grammatically correct or well-expressed
+- Gently correct any mistakes with a brief explanation
+- Give a word of encouragement
 
-      const data = await res.json();
-      setCoaching(data.coaching);
+Keep your response to 2-3 sentences max. Always respond in English. Be warm and encouraging — this is a kid learning.
 
-      // Speak the coaching aloud
-      const utterance = new SpeechSynthesisUtterance(data.coaching);
+${DIFFICULTY_CONTEXT[difficulty]}`;
+
+      const message = await client.messages.create({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 256,
+        system: systemPrompt,
+        messages: [
+          {
+            role: "user",
+            content: `The student said in Spanish: "${finalTranscript}"`,
+          },
+        ],
+      });
+
+      const coachingText =
+        message.content[0].type === "text" ? message.content[0].text : "";
+      setCoaching(coachingText);
+
+      const utterance = new SpeechSynthesisUtterance(coachingText);
       utterance.lang = "en-US";
       utterance.rate = 0.9;
       utterance.onstart = () => setIsSpeaking(true);
@@ -142,7 +216,7 @@ export default function SpeechCoach() {
     } finally {
       setIsEvaluating(false);
     }
-  }, [transcript, difficulty]);
+  }, [transcript, difficulty, apiKey]);
 
   const handlePointerDown = useCallback(() => {
     if (isEvaluating) return;
@@ -162,9 +236,9 @@ export default function SpeechCoach() {
     stopAndEvaluate();
   }, [isRecording, stopAndEvaluate]);
 
-  const newTopic = () => {
-    setTopicIndex((i) => (i + 1) % TOPIC_SUGGESTIONS.length);
-  };
+  if (!apiKey) {
+    return <ApiKeySetup onSave={setApiKey} />;
+  }
 
   if (!supported) {
     return (
@@ -185,7 +259,6 @@ export default function SpeechCoach() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-purple-50 flex flex-col items-center justify-start p-6 pt-10">
       <div className="w-full max-w-lg space-y-6">
-        {/* Header */}
         <div className="text-center">
           <h1 className="text-4xl font-bold text-blue-700 tracking-tight">
             🗣️ habla
@@ -195,7 +268,6 @@ export default function SpeechCoach() {
           </p>
         </div>
 
-        {/* Difficulty Selector */}
         <div className="bg-white rounded-2xl shadow-sm p-4">
           <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
             Difficulty
@@ -219,7 +291,6 @@ export default function SpeechCoach() {
           </div>
         </div>
 
-        {/* Topic Suggestion */}
         <div className="bg-white rounded-2xl shadow-sm p-4 flex items-start gap-3">
           <span className="text-2xl">💡</span>
           <div className="flex-1">
@@ -231,14 +302,13 @@ export default function SpeechCoach() {
             </p>
           </div>
           <button
-            onClick={newTopic}
+            onClick={() => setTopicIndex((i) => (i + 1) % TOPIC_SUGGESTIONS.length)}
             className="text-blue-400 hover:text-blue-600 text-xs font-semibold mt-1 shrink-0"
           >
             New topic
           </button>
         </div>
 
-        {/* Record Button */}
         <div className="flex flex-col items-center gap-4 py-4">
           <button
             onPointerDown={handlePointerDown}
@@ -288,24 +358,21 @@ export default function SpeechCoach() {
           )}
         </div>
 
-        {/* Error */}
         {error && (
           <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-red-600 text-sm text-center">
             {error}
           </div>
         )}
 
-        {/* Transcript */}
         {transcript && (
           <div className="bg-white rounded-2xl shadow-sm p-4">
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
               What you said (Spanish)
             </p>
-            <p className="text-gray-800 text-base italic">"{transcript}"</p>
+            <p className="text-gray-800 text-base italic">&ldquo;{transcript}&rdquo;</p>
           </div>
         )}
 
-        {/* Coaching */}
         {coaching && (
           <div className="bg-gradient-to-br from-blue-50 to-purple-50 border border-blue-100 rounded-2xl shadow-sm p-4">
             <div className="flex items-center gap-2 mb-2">
@@ -321,6 +388,18 @@ export default function SpeechCoach() {
             <p className="text-gray-800 text-base leading-relaxed">{coaching}</p>
           </div>
         )}
+
+        <div className="text-center">
+          <button
+            onClick={() => {
+              localStorage.removeItem(API_KEY_STORAGE);
+              setApiKey(null);
+            }}
+            className="text-xs text-gray-300 hover:text-gray-500"
+          >
+            Change API key
+          </button>
+        </div>
       </div>
     </div>
   );
