@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
-import Anthropic from "@anthropic-ai/sdk";
 
 type Difficulty = "beginner" | "intermediate" | "advanced";
 type Language = "Spanish" | "Icelandic" | "Japanese";
@@ -166,7 +165,6 @@ const DIFFICULTY_COLORS: Record<Difficulty, string> = {
 };
 
 const SESSION_KEY = "habla_sessions";
-const API_KEY_STORAGE = "habla_anthropic_key";
 const MAX_SESSIONS = 50;
 
 const DIFFICULTY_CONTEXT: Record<Difficulty, string> = {
@@ -207,54 +205,8 @@ function saveSessions(sessions: SessionEntry[]) {
   }
 }
 
-function ApiKeySetup({ onSave }: { onSave: (key: string) => void }) {
-  const [value, setValue] = useState("");
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const trimmed = value.trim();
-    if (!trimmed.startsWith("sk-")) return;
-    localStorage.setItem(API_KEY_STORAGE, trimmed);
-    onSave(trimmed);
-  };
-
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-purple-50 flex items-center justify-center p-6">
-      <div className="bg-white rounded-2xl shadow-lg p-8 max-w-md w-full">
-        <h1 className="text-3xl font-bold text-blue-700 text-center mb-2">🗣️ habla</h1>
-        <p className="text-gray-500 text-sm text-center mb-6">
-          Enter your Anthropic API key to get started. It&apos;s stored only in your browser.
-        </p>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <input
-            type="password"
-            placeholder="sk-ant-..."
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
-            autoComplete="off"
-          />
-          <button
-            type="submit"
-            disabled={!value.trim().startsWith("sk-")}
-            className="w-full bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 text-white font-semibold py-3 rounded-xl transition-all"
-          >
-            Start practicing
-          </button>
-        </form>
-        <p className="text-xs text-gray-400 text-center mt-4">
-          Get your key at{" "}
-          <a href="https://console.anthropic.com" target="_blank" rel="noreferrer" className="text-blue-400 underline">
-            console.anthropic.com
-          </a>
-        </p>
-      </div>
-    </div>
-  );
-}
-
 export default function SpeechCoach() {
-  const [apiKey, setApiKey] = useState<string | null>(null);
+  const [aiAvailable, setAiAvailable] = useState<boolean | null>(null);
   const [language, setLanguage] = useState<Language>("Spanish");
   const [difficulty, setDifficulty] = useState<Difficulty>("beginner");
   const [selectedCategory, setSelectedCategory] = useState(0);
@@ -274,20 +226,22 @@ export default function SpeechCoach() {
   const interimRef = useRef("");
   const languageRef = useRef<Language>(language);
   const difficultyRef = useRef<Difficulty>(difficulty);
-  const apiKeyRef = useRef<string | null>(null);
-
   useEffect(() => { languageRef.current = language; }, [language]);
   useEffect(() => { difficultyRef.current = difficulty; }, [difficulty]);
-  useEffect(() => { apiKeyRef.current = apiKey; }, [apiKey]);
 
   useEffect(() => {
-    const stored = localStorage.getItem(API_KEY_STORAGE);
-    if (stored) setApiKey(stored);
-
     const SpeechRecognitionClass =
       window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognitionClass) setSupported(false);
     setSessions(loadSessions());
+
+    if (window.ai?.languageModel) {
+      window.ai.languageModel.capabilities().then((caps) => {
+        setAiAvailable(caps.available !== "no");
+      }).catch(() => setAiAvailable(false));
+    } else {
+      setAiAvailable(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -366,11 +320,8 @@ export default function SpeechCoach() {
 
     const currentLang = languageRef.current;
     const currentDiff = difficultyRef.current;
-    const key = apiKeyRef.current;
 
     try {
-      const client = new Anthropic({ apiKey: key!, dangerouslyAllowBrowser: true });
-
       const systemPrompt = `You are a friendly language coach helping a student practice speaking ${currentLang}.
 The student has just said something in ${currentLang}. Evaluate what they said:
 - Note what was grammatically correct or well-expressed
@@ -381,20 +332,11 @@ Keep your response to 2-3 sentences max. Always respond in English. Be warm and 
 
 ${DIFFICULTY_CONTEXT[currentDiff]}`;
 
-      const message = await client.messages.create({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: 256,
-        system: systemPrompt,
-        messages: [
-          {
-            role: "user",
-            content: `The student said in ${currentLang}: "${finalTranscript}"`,
-          },
-        ],
-      });
-
-      const coachingText =
-        message.content[0].type === "text" ? message.content[0].text : "";
+      const session = await window.ai!.languageModel.create({ systemPrompt });
+      const coachingText = await session.prompt(
+        `The student said in ${currentLang}: "${finalTranscript}"`
+      );
+      session.destroy();
       setCoaching(coachingText);
 
       const entry: SessionEntry = {
@@ -454,8 +396,26 @@ ${DIFFICULTY_CONTEXT[currentDiff]}`;
     saveSessions([]);
   };
 
-  if (!apiKey) {
-    return <ApiKeySetup onSave={setApiKey} />;
+  if (aiAvailable === false) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-purple-50 flex items-center justify-center p-6">
+        <div className="bg-white rounded-2xl shadow-lg p-8 max-w-md text-center">
+          <p className="text-3xl mb-4">🤖</p>
+          <h2 className="text-xl font-semibold text-gray-800 mb-2">window.ai not available</h2>
+          <p className="text-gray-600 text-sm mb-4">
+            This app uses Chrome&apos;s built-in AI. You need Chrome Canary with the Prompt API enabled.
+          </p>
+          <a
+            href="https://developer.chrome.com/docs/ai/built-in"
+            target="_blank"
+            rel="noreferrer"
+            className="text-blue-500 underline text-sm"
+          >
+            How to enable Chrome built-in AI →
+          </a>
+        </div>
+      </div>
+    );
   }
 
   if (!supported) {
@@ -723,17 +683,6 @@ ${DIFFICULTY_CONTEXT[currentDiff]}`;
           )}
         </div>
 
-        <div className="text-center pb-6">
-          <button
-            onClick={() => {
-              localStorage.removeItem(API_KEY_STORAGE);
-              setApiKey(null);
-            }}
-            className="text-xs text-gray-300 hover:text-gray-500"
-          >
-            Change API key
-          </button>
-        </div>
       </div>
     </div>
   );
