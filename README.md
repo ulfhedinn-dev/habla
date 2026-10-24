@@ -1,36 +1,54 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Habla
 
-## Getting Started
+Habla is a native iOS and macOS app for language conversation practice and pronunciation feedback, powered by Apple Intelligence (on-device LLM via FoundationModels), Speech framework, and AVFoundation.
 
-First, run the development server:
+## Platform Requirements
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+- **iOS 18.1+** (Apple Intelligence required for AI conversation partner)
+- **macOS 15.1+**
+- Xcode 16.2+
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Features
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- Conversational practice in Spanish, French, Japanese, Mandarin, and Portuguese
+- On-device speech recognition via `SFSpeechRecognizer`
+- Pronunciation scoring after each user turn
+- Native TTS playback of assistant responses via `AVSpeechSynthesizer`
+- AI conversation partner via `FoundationModels` (`LanguageModelSession`)
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Build
 
-## Learn More
+1. Install [xcodegen](https://github.com/yonaskolb/XcodeGen):
+   ```sh
+   brew install xcodegen
+   ```
 
-To learn more about Next.js, take a look at the following resources:
+2. Generate the Xcode project:
+   ```sh
+   xcodegen generate
+   ```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+3. Open the project:
+   ```sh
+   open Habla.xcodeproj
+   ```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+4. Select the **Habla** scheme, choose an iOS 18.1+ simulator or device, and build.
 
-## Deploy on Vercel
+## Architecture
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+| File | Role |
+|---|---|
+| `HablaApp.swift` | App entry point |
+| `ContentView.swift` | Language picker + session list |
+| `ConversationView.swift` | Practice UI with mic, transcript, scores |
+| `SpeechEngine.swift` | `SFSpeechRecognizer` wrapper |
+| `PronunciationScorer.swift` | Word-match scorer (phoneme diff TBD) |
+| `ConversationEngine.swift` | `FoundationModels` `LanguageModelSession` wrapper |
+| `TTSPlayer.swift` | `AVSpeechSynthesizer` wrapper |
+| `ConversationMessage.swift` | Message model |
+| `Language.swift` | Supported language enum |
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## License
+
+Private.
