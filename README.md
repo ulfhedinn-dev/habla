@@ -4,9 +4,9 @@ Habla is a native iOS and macOS app for language conversation practice and pronu
 
 ## Platform Requirements
 
-- **iOS 18.1+** (Apple Intelligence required for AI conversation partner)
-- **macOS 15.1+**
-- Xcode 16.2+
+- **iOS 26+** (Apple Intelligence required for AI conversation partner)
+- **macOS 26+**
+- Xcode 26+
 
 ## Features
 
@@ -33,7 +33,7 @@ Habla is a native iOS and macOS app for language conversation practice and pronu
    open Habla.xcodeproj
    ```
 
-4. Select the **Habla** scheme, choose an iOS 18.1+ simulator or device, and build.
+4. Select the **Habla** scheme, choose an iOS 26+ simulator or device, and build.
 
 ## Architecture
 

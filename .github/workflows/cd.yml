@@ -1,0 +1,88 @@
+name: TestFlight
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    name: Archive & Upload
+    runs-on: macos-26
+    environment: testflight
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Select latest Xcode
+        run: |
+          XCODE_APP=$(ls /Applications/ | grep '^Xcode_' | sort -V | tail -1)
+          sudo xcode-select -s "/Applications/$XCODE_APP"
+          xcodebuild -version
+
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Set build number
+        run: |
+          BUILD=$(git rev-list --count HEAD)
+          xcrun agvtool new-version -all $BUILD
+
+      - name: Import certificate
+        env:
+          CERTIFICATE_P12_BASE64: ${{ secrets.DISTRIBUTION_CERTIFICATE_P12_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.DISTRIBUTION_CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN=build.keychain
+          security create-keychain -p "" $KEYCHAIN
+          security set-keychain-settings -lut 3600 $KEYCHAIN
+          security unlock-keychain -p "" $KEYCHAIN
+          security list-keychains -d user -s $KEYCHAIN $(security list-keychains -d user | tr -d '"')
+          echo "$CERTIFICATE_P12_BASE64" | base64 --decode > /tmp/cert.p12
+          security import /tmp/cert.p12 -k $KEYCHAIN -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "" $KEYCHAIN
+
+      - name: Install provisioning profile
+        env:
+          PROFILE_APP_BASE64: ${{ secrets.PROVISIONING_PROFILE_APP_BASE64 }}
+        run: |
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          echo "$PROFILE_APP_BASE64" | base64 --decode \
+            > ~/Library/MobileDevice/Provisioning\ Profiles/Habla.mobileprovision
+
+      - name: Write ASC API key
+        env:
+          ASC_API_KEY_BASE64: ${{ secrets.ASC_API_KEY_BASE64 }}
+        run: |
+          mkdir -p ~/.appstoreconnect/private_keys
+          echo "$ASC_API_KEY_BASE64" | base64 --decode \
+            > ~/.appstoreconnect/private_keys/AuthKey_${{ secrets.ASC_API_KEY_ID }}.p8
+
+      - name: Archive
+        run: |
+          xcodebuild \
+            -project Habla.xcodeproj \
+            -scheme Habla \
+            -configuration Release \
+            -destination generic/platform=iOS \
+            -archivePath build/Habla.xcarchive \
+            archive
+
+      - name: Export & Upload to TestFlight
+        run: |
+          xcodebuild \
+            -exportArchive \
+            -archivePath build/Habla.xcarchive \
+            -exportPath build/export \
+            -exportOptionsPlist ExportOptions.plist \
+            -authenticationKeyPath "$HOME/.appstoreconnect/private_keys/AuthKey_${{ secrets.ASC_API_KEY_ID }}.p8" \
+            -authenticationKeyID "${{ secrets.ASC_API_KEY_ID }}" \
+            -authenticationKeyIssuerID "${{ secrets.ASC_API_ISSUER_ID }}"
+
+      - name: Clean up keychain
+        if: always()
+        run: security delete-keychain build.keychain || true

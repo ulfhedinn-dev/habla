@@ -2,9 +2,9 @@ name: Habla
 options:
   bundleIdPrefix: net.ulfhedinn
   deploymentTarget:
-    iOS: "18.1"
-    macOS: "15.1"
-  xcodeVersion: "16.2"
+    iOS: "26.0"
+    macOS: "26.0"
+  xcodeVersion: "26.0"
 targets:
   Habla:
     type: application

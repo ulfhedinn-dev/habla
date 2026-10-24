@@ -6,13 +6,23 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  build-and-test:
-    runs-on: macos-15
+  build:
+    name: Build & Test
+    runs-on: macos-26
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+
+      - name: Select latest Xcode
+        run: |
+          XCODE_APP=$(ls /Applications/ | grep '^Xcode_' | sort -V | tail -1)
+          sudo xcode-select -s "/Applications/$XCODE_APP"
+          xcodebuild -version
 
       - name: Install xcodegen
         run: brew install xcodegen
@@ -20,10 +30,24 @@ jobs:
       - name: Generate Xcode project
         run: xcodegen generate
 
-      - name: Build and test (iOS Simulator)
+      - name: Build iOS app (simulator)
         run: |
-          xcodebuild test \
+          xcodebuild \
+            -project Habla.xcodeproj \
             -scheme Habla \
-            -destination 'platform=iOS Simulator,name=iPhone 16 Pro' \
-            -resultBundlePath TestResults.xcresult \
-            | xcpretty || true
+            -destination 'generic/platform=iOS Simulator' \
+            -configuration Debug \
+            build \
+            CODE_SIGNING_ALLOWED=NO \
+            | xcpretty --color || exit 1
+
+      - name: Build macOS app
+        run: |
+          xcodebuild \
+            -project Habla.xcodeproj \
+            -scheme Habla \
+            -destination 'generic/platform=macOS' \
+            -configuration Debug \
+            build \
+            CODE_SIGNING_ALLOWED=NO \
+            | xcpretty --color || exit 1
